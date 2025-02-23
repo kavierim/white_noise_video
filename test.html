@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>White Noise Refresh Rate Test</title>
+    <style>
+        body { 
+            background: #000; 
+            color: #fff; 
+            font-family: sans-serif; 
+            margin: 0;
+            padding: 0;
+            text-align: center;
+        }
+        #controls {
+            background: #222;
+            padding: 10px;
+        }
+        canvas {
+            display: block;
+            margin: 0 auto;
+            background: #000;
+        }
+        label, input, select, button {
+            margin: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <label>Width: <input type="number" id="width" value="800"></label>
+        <label>Height: <input type="number" id="height" value="600"></label>
+        <label>Pixel Size: <input type="number" id="pixelSize" value="1"></label>
+        <label>Fast Rate (Hz): <input type="number" id="fastRate" value="120"></label>
+        <label>Slow Rate (Hz): <input type="number" id="slowRate" value="1"></label>
+        <label>Tick Rate: <input type="number" id="tickRate" value="120"></label>
+        <label>Color Mode: 
+            <select id="colorMode">
+                <option value="bw">B/W</option>
+                <option value="grayscale">Grayscale</option>
+            </select>
+        </label>
+        <button id="startBtn">Start</button>
+        <button id="pauseBtn">Pause</button>
+    </div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        // Global simulation variables
+        let canvas, ctx;
+        let canvasWidth, canvasHeight, pixelSize, fastRate, slowRate, tickRate, colorMode;
+        let numCols;
+        let nextUpdate = [];
+        let noiseColumns = [];
+        let running = false;
+        let paused = false;
+        let lastFrameTime = performance.now();
+        let fps = 0;
+        let animationFrameId = null;
+
+        // Get DOM elements
+        const startBtn = document.getElementById('startBtn');
+        const pauseBtn = document.getElementById('pauseBtn');
+
+        // Initialize simulation parameters and data
+        function initSimulation() {
+            // Read user inputs
+            canvasWidth = parseInt(document.getElementById('width').value);
+            canvasHeight = parseInt(document.getElementById('height').value);
+            pixelSize = parseInt(document.getElementById('pixelSize').value);
+            fastRate = parseFloat(document.getElementById('fastRate').value);
+            slowRate = parseFloat(document.getElementById('slowRate').value);
+            tickRate = parseFloat(document.getElementById('tickRate').value);
+            colorMode = document.getElementById('colorMode').value;
+
+            // Set canvas dimensions
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+
+            numCols = Math.floor(canvasWidth / pixelSize);
+            nextUpdate = [];
+            noiseColumns = [];
+            let currentTime = performance.now();
+            for (let i = 0; i < numCols; i++) {
+                nextUpdate[i] = currentTime + getRefreshPeriod(i * pixelSize);
+                noiseColumns[i] = generateNoiseColumn();
+            }
+            window.addEventListener('keydown', keydownHandler);
+
+            running = true;
+            paused = false;
+            lastFrameTime = performance.now();
+            animate();
+        }
+
+        // Compute the refresh period (in ms) for a column at given x-coordinate
+        function getRefreshPeriod(x) {
+            let rate = fastRate + (slowRate - fastRate) * (x / (canvasWidth - 1));
+            return 1000 / rate;
+        }
+
+        // Generate one noise column as an offscreen canvas
+        function generateNoiseColumn() {
+            const offCanvas = document.createElement('canvas');
+            offCanvas.width = pixelSize;
+            offCanvas.height = canvasHeight;
+            const offCtx = offCanvas.getContext('2d');
+            const blocks = Math.ceil(canvasHeight / pixelSize);
+            let noiseValues = [];
+            // Generate a random value for each block
+            for (let i = 0; i < blocks; i++) {
+                let val;
+                if (colorMode === "bw") {
+                    val = Math.random() < 0.5 ? 0 : 255;
+                } else {
+                    val = Math.floor(Math.random() * 256);
+                }
+                noiseValues.push(val);
+            }
+            // Create ImageData and fill with repeated block values
+            let imageData = offCtx.createImageData(pixelSize, canvasHeight);
+            for (let y = 0; y < canvasHeight; y++) {
+                let blockIdx = Math.floor(y / pixelSize);
+                let v = noiseValues[blockIdx];
+                for (let x = 0; x < pixelSize; x++) {
+                    let index = (y * pixelSize + x) * 4;
+                    imageData.data[index] = v;       // R
+                    imageData.data[index + 1] = v;   // G
+                    imageData.data[index + 2] = v;   // B
+                    imageData.data[index + 3] = 255; // A
+                }
+            }
+            offCtx.putImageData(imageData, 0, 0);
+            return offCanvas;
+        }
+
+        // Compute refresh tick marks for the bottom annotation
+        function getRateTicks() {
+            let rates = [];
+            for (let r = fastRate; r >= slowRate; r -= 10) {
+                rates.push(r);
+            }
+            return rates;
+        }
+
+        // Animation loop: updates noise columns and redraws the canvas
+        function animate() {
+            if (!running) return;
+            const now = performance.now();
+            const deltaTime = now - lastFrameTime;
+            fps = 1000 / deltaTime;
+            lastFrameTime = now;
+
+            if (!paused) {
+                // Update columns whose next update time has passed
+                for (let i = 0; i < numCols; i++) {
+                    if (now >= nextUpdate[i]) {
+                        noiseColumns[i] = generateNoiseColumn();
+                        nextUpdate[i] = now + getRefreshPeriod(i * pixelSize);
+                    }
+                }
+            }
+
+            // Clear canvas and draw noise columns
+            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+            for (let i = 0; i < numCols; i++) {
+                ctx.drawImage(noiseColumns[i], i * pixelSize, 0);
+            }
+
+            // Draw a top overlay for FPS display
+            const topOverlayHeight = 30;
+            ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+            ctx.fillRect(0, 0, canvasWidth, topOverlayHeight);
+            ctx.font = "16px sans-serif";
+            ctx.fillStyle = Math.round(fps) !== 60 ? "red" : "white";
+            ctx.fillText(`FPS: ${fps.toFixed(2)}`, 10, 20);
+
+            // Draw a bottom overlay with refresh rate tick marks
+            const bottomOverlayHeight = 30;
+            ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+            ctx.fillRect(0, canvasHeight - bottomOverlayHeight, canvasWidth, bottomOverlayHeight);
+            ctx.fillStyle = "white";
+            const ticks = getRateTicks();
+            ticks.forEach(rate => {
+                // Invert interpolation (same formula as Python code)
+                const x = Math.round(((rate - fastRate) / (slowRate - fastRate)) * (canvasWidth - 1));
+                ctx.beginPath();
+                ctx.moveTo(x, canvasHeight - bottomOverlayHeight);
+                ctx.lineTo(x, canvasHeight);
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = "white";
+                ctx.stroke();
+                // Draw the refresh rate label
+                const text = `${rate} Hz`;
+                const textWidth = ctx.measureText(text).width;
+                ctx.fillText(text, x - textWidth / 2, canvasHeight - bottomOverlayHeight / 2 + 5);
+            });
+
+            animationFrameId = requestAnimationFrame(animate);
+        }
+
+        // Toggle pause (using Space) and stop simulation (using Escape)
+        function keydownHandler(event) {
+            if (event.key === " ") {
+                paused = !paused;
+            }
+            if (event.key === "Escape") {
+                running = false;
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                }
+            }
+        }
+
+        // Button event listeners
+        startBtn.addEventListener('click', () => {
+            if (running && animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+            }
+            canvas = document.getElementById('canvas');
+            ctx = canvas.getContext('2d');
+            initSimulation();
+        });
+
+        pauseBtn.addEventListener('click', () => {
+            paused = !paused;
+        });
+    </script>
+</body>
+</html>

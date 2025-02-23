@@ -1,5 +1,4 @@
 import sys
-import random
 import pygame
 import time
 import numpy as np  # added numpy import
