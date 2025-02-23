@@ -17,7 +17,7 @@ The application generates random noise columns using Pygame and numpy. Each colu
 
 ## Screenshot
 
-![Screenshot](Screenshot 2025-02-23 123636.png)
+![Screenshot](Screenshot.png)
 
 ## Usage
 
